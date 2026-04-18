@@ -1,5 +1,5 @@
-import { UploadIcon, CheckCircle2, ImageIcon } from 'lucide-react';
-import { useState, type ChangeEvent, type DragEvent } from 'react'
+import { UploadIcon, CheckCircle2, ImageIcon, AlertCircle } from 'lucide-react';
+import { useState, useEffect, useRef, type ChangeEvent, type DragEvent } from 'react'
 import { useOutletContext } from 'react-router';
 import { PROGRESS_INTERVAL_MS, PROGRESS_STEP, REDIRECT_DELAY_MS } from '../lib/constants';
 
@@ -9,24 +9,48 @@ interface UploadProps {
 
 const Upload = ({ onComplete }: UploadProps) => {
     const [file, setFile] = useState<File | null>(null);
+    const [error, setError] = useState<string | null>(null);
     const [isDragging, setIsDragging] = useState(false);
     const [progress, setProgress] = useState(0);
+    const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const { isSignedIn } = useOutletContext<AuthContext>();
+
+    useEffect(() => {
+        return () => {
+            if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+        };
+    }, []);
+
+    const MAX_FILE_SIZE_MB = 10;
+    const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
     const processFile = (selectedFile: File) => {
         if (!isSignedIn) return;
-        setFile(selectedFile);
-        setProgress(0);
+        setError(null);
+
+        // 1. Check File Size
+        if (selectedFile.size > MAX_FILE_SIZE_BYTES) {
+            setError(`File is too large. Max size is ${MAX_FILE_SIZE_MB}MB.`);
+            return;
+        }
 
         const reader = new FileReader();
+
+        reader.onloadstart = () => {
+            // Only set the file (switching UI to progress bar) once reading actually begins
+            setFile(selectedFile);
+            setProgress(0);
+        };
+
         reader.onload = () => {
             const base64 = reader.result as string;
 
-            const interval = setInterval(() => {
+            progressIntervalRef.current = setInterval(() => {
                 setProgress(prev => {
                     const next = prev + PROGRESS_STEP;
                     if (next >= 100) {
-                        clearInterval(interval);
+                        clearInterval(progressIntervalRef.current!);
+                        progressIntervalRef.current = null;
                         setTimeout(() => onComplete(base64), REDIRECT_DELAY_MS);
                         return 100;
                     }
@@ -34,6 +58,13 @@ const Upload = ({ onComplete }: UploadProps) => {
                 });
             }, PROGRESS_INTERVAL_MS);
         };
+
+        reader.onerror = () => {
+            setFile(null);
+            setProgress(0);
+            setError("Could not read this file. It might be corrupted.");
+        };
+
         reader.readAsDataURL(selectedFile);
     };
 
@@ -64,7 +95,7 @@ const Upload = ({ onComplete }: UploadProps) => {
         <div className='upload'>
             {!file ? (
                 <div
-                    className={`dropzone ${isDragging ? 'is-dragging' : ''}`}
+                    className={`dropzone ${isDragging ? 'is-dragging' : ''} ${error ? 'is-error' : ''}`}
                     onDragOver={onDragOver}
                     onDragLeave={onDragLeave}
                     onDrop={onDrop}
@@ -77,17 +108,22 @@ const Upload = ({ onComplete }: UploadProps) => {
                         onChange={onChange}
                     />
                     <div className='drop-content'>
-                        <div className='drop-icon'>
-                            <UploadIcon size={20} />
+                        <div className={`drop-icon ${error ? 'text-red-500' : ''}`}>
+                            {error ? <AlertCircle size={20} /> : <UploadIcon size={20} />}
                         </div>
-                        <p>
-                            {isSignedIn ? (
+                        <p className={error ? 'text-red-500 font-medium' : ''}>
+                            {error || (isSignedIn ? (
                                 "Click to upload or just drag and drop"
                             ) : (
                                 "Sign in or sign up to upload your floor plan"
-                            )}
+                            ))}
                         </p>
-                        <p className='help'>Maximum file size is 50MB.</p>
+                        <p className='help'>
+                            {error
+                                ? "Please try again with a different file."
+                                : `Maximum file size is ${MAX_FILE_SIZE_MB}MB.`
+                            }
+                        </p>
                     </div>
                 </div>
             ) : (
