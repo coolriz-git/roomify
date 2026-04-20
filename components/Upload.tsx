@@ -7,22 +7,26 @@ interface UploadProps {
     onComplete: (base64: string) => void;
 }
 
+const MAX_FILE_SIZE_MB = 10;
+const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+
 const Upload = ({ onComplete }: UploadProps) => {
     const [file, setFile] = useState<File | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [isDragging, setIsDragging] = useState(false);
     const [progress, setProgress] = useState(0);
     const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const redirectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const { isSignedIn } = useOutletContext<AuthContext>();
 
     useEffect(() => {
         return () => {
             if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+            if (redirectTimeoutRef.current) clearTimeout(redirectTimeoutRef.current);
         };
     }, []);
 
-    const MAX_FILE_SIZE_MB = 10;
-    const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+
 
     const processFile = (selectedFile: File) => {
         if (!isSignedIn) return;
@@ -51,7 +55,7 @@ const Upload = ({ onComplete }: UploadProps) => {
                     if (next >= 100) {
                         clearInterval(progressIntervalRef.current!);
                         progressIntervalRef.current = null;
-                        setTimeout(() => onComplete(base64), REDIRECT_DELAY_MS);
+                        redirectTimeoutRef.current = setTimeout(() => onComplete(base64), REDIRECT_DELAY_MS);
                         return 100;
                     }
                     return next;
